@@ -1,7 +1,3 @@
-﻿# synchlynk
-user facing webservice and backend for the web client for sample
-management and experiment monitoring.
+﻿# synch_service_utils
 
-# proposed api / thoughts
-please look at the files 'db_api_ideas' and 'live_update_stuff'
-
+small set of utility functions shared by various services
