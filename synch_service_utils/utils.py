@@ -1,14 +1,26 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 import os
-import yaml
-import tornado.web
-from pkg_resources import resource_filename as rs_fn
-import ujson
 import datetime
+from pkg_resources import resource_filename as rs_fn
+import re
+
+import tornado.web
+from tornado import gen
+
+import motor
+
+import yaml
+import ujson
 from bson.objectid import ObjectId
 
-__all__ = []
+
+@tornado.web.asynchronous
+@gen.coroutine
+def gen_404(self):
+    raise tornado.web.HTTPError(404,
+                                status='Not allowed on server')
+
 
 def load_configuration(name, prefix, fields, logger):
     """
@@ -60,10 +72,28 @@ def load_configuration(name, prefix, fields, logger):
         var_name = prefix + '_' + field.upper().replace(' ', '_')
         config[field] = os.environ.get(var_name, config.get(field, None))
 
+    # change this to warn and load defaults?
     missing = [k for k, v in config.items() if v is None]
     if missing:
         raise KeyError("The configuration field(s) {0} were not found in any "
                        "file or environmental variable.".format(missing))
+
+    # fill in any templated strings
+    if not config.has_key('SERVICE_NAME'):
+        config['SERVICE_NAME'] = name
+
+    for k,v in config.items():
+        if isinstance(config[k], str):
+            i=0
+            while re.search('{[A-Za-z0-9_]+}', config[k]):
+                if i > 10:
+                    raise ValueError('failed to finish substituting all values '
+                                     'in config after 10 rounds. '
+                                     'circular substitution?\n\n{0}'.format(
+                            config))
+                config[k] = config[k].format(**config)
+                i += 1
+
     return config
 
 
@@ -100,12 +130,14 @@ def db_connect(database ,host, port, replicaset=None, write_concern="majority",
     return database
 
 
-def load_schemas(service_name, schema_path, schema_names):
+def load_schemas(service_name, schema_path, schema_names, debug=False):
     schemas = {}
     fn = '{}/{{}}'.format(schema_path)
 
     for name, filename in schema_names.items():
         with open(rs_fn(service_name, resource_name=fn.format(filename))) as fin:
+            if debug:
+                print('loading schema {0} for service: {1}'.format(filename, service_name))
             schemas[name] = ujson.load(fin)
 
     return schemas
